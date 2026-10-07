@@ -48,4 +48,4 @@ This is the **web version** of LostAndFound, a platform that helps people report
 **Jannatul Ferdous Munny**
 Supervised by **Mahmudur Rahman Roni**, Associate Professor, Department of CSE, ADUST
 
-[LinkedIn](https://www.linkedin.com/in/ferdous-munny-036028226) · ferdousmunny188@gmail.com
+[LinkedIn](https://www.linkedin.com/in/jannatul-ferdous-munny-036028226) · ferdousmunny188@gmail.com
