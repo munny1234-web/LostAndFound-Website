@@ -1,0 +1,23 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FAQ · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+</head><body>
+<div id="nav"></div>
+<div class="wrap-narrow" style="max-width:680px">
+  <h1 style="margin-bottom:16px">Frequently asked questions</h1>
+  <div class="card">
+    <div class="pad" style="border-bottom:1px solid var(--line)"><h3>How does AI matching work?</h3><p class="sub">When you upload a photo, AI running in your browser detects what the item is and reads any visible text (serials, name tags). Those signals plus your description are compared against every other post to rank likely matches.</p></div>
+    <div class="pad" style="border-bottom:1px solid var(--line)"><h3>What is the verification question?</h3><p class="sub">Finders set a secret detail only the true owner would know. Claimants must answer it, and a sentence-similarity AI scores how close the answer is — so fraud gets caught before a handover.</p></div>
+    <div class="pad" style="border-bottom:1px solid var(--line)"><h3>Is my contact info public?</h3><p class="sub">No. Contact info is shown after a claim is approved. Until then, use the built-in chat.</p></div>
+    <div class="pad" style="border-bottom:1px solid var(--line)"><h3>Someone claimed my found item — what now?</h3><p class="sub">Open the item → Review claims. You'll see each claim with its AI match score, their proof and their answer to your question. Approve the right one; the rest are automatically declined.</p></div>
+    <div class="pad"><h3>How do I report a fake post?</h3><p class="sub">Open the post and tap Report. Admins review every report and remove anything that breaks the rules.</p></div>
+  </div>
+</div>
+<script src="js/app.js"></script><script>initNav("");</script>
+</body></html>

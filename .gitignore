@@ -1,0 +1,21 @@
+# Node / React
+node_modules/
+build/
+dist/
+.cache/
+npm-debug.log*
+yarn-error.log*
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Secrets - never upload
+.env
+.env.*
+*.env
+
+# Website secrets (Hugging Face token)
+js/secrets.js

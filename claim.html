@@ -1,0 +1,98 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Claim item · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+</head><body>
+<div id="nav"></div>
+<div class="wrap-narrow" style="max-width:640px">
+  <div class="card pad">
+    <span class="tag">Claim</span>
+    <h1 style="margin:10px 0 4px" id="hTitle">Claim this item</h1>
+    <p class="sub">Your answers are scored by AI against details only the real owner knows. Honest, specific answers get approved fastest.</p>
+    <div id="already"></div>
+    <div id="form">
+      <label>Why do you believe this is yours? *</label>
+      <textarea id="reason" placeholder="When and where you lost it, how you recognize it…"></textarea>
+      <label>Describe a detail that proves ownership *</label>
+      <textarea id="proof" placeholder="Contents, scratches, serial number, name written inside…"></textarea>
+      <div id="vqBox"></div>
+      <label>Proof photos (optional — up to 3, e.g. old photos of you with the item)</label>
+      <input type="file" id="proofPhoto" accept="image/*" multiple style="display:none">
+      <div id="proofStrip"></div>
+      <div style="margin-top:22px"><button class="btn block" id="btnClaim">🧠 Run AI check &amp; submit claim</button></div>
+      <div id="msg"></div>
+    </div>
+  </div>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("home");
+const itemId = qs("id");
+let item = null;
+const proofPicker = initPhotoPicker({ inputId: "proofPhoto", stripId: "proofStrip", max: 3, maxDim: 600, quality: .65 });
+
+requireAuth(async u => {
+  item = (await db.ref("items").child(itemId).once("value")).val();
+  if(!item){ document.querySelector(".card").innerHTML = `<div class="empty">Item not found.</div>`; return; }
+  hTitle.textContent = "Claim: " + item.title;
+  if(item.userId === u.uid){ form.style.display = "none"; already.innerHTML = `<div class="notice warn">This is your own post — you can't claim it.</div>`; return; }
+  if(item.verificationQuestion){
+    vqBox.innerHTML = `<div class="notice warn">🛡️ <b>Finder's verification question:</b><br>${esc(item.verificationQuestion)}</div>
+      <label>Your answer *</label><input id="vAnswer" placeholder="Answer honestly and specifically">`;
+  }
+  /* block duplicate pending/approved claims — same logic as ClaimActivity */
+  const claims = (await db.ref("claims").once("value")).val() || {};
+  for(const k in claims){
+    const c = claims[k];
+    if(c.itemId === itemId){
+      if(c.status && c.status.includes("Approved")){
+        form.style.display = "none";
+        already.innerHTML = `<div class="notice ok">✅ This item already has an approved claim.</div>`; return;
+      }
+      if(c.claimantId === u.uid && (!c.status || c.status.includes("Pending"))){
+        form.style.display = "none";
+        already.innerHTML = `<div class="notice warn">⏳ You already have a pending claim on this item. Check <a href="my-claims.html">My Claims</a>.</div>`; return;
+      }
+    }
+  }
+
+  btnClaim.onclick = async () => {
+    const r = reason.value.trim(), p = proof.value.trim();
+    const va = document.getElementById("vAnswer") ? document.getElementById("vAnswer").value.trim() : "";
+    if(!r || !p || (item.verificationQuestion && !va)){ msg.innerHTML = `<div class="notice err">Please fill every required field.</div>`; return; }
+    btnClaim.disabled = true; btnClaim.textContent = "🧠 AI verifying your answer…";
+
+    /* AI score: HF sentence-similarity vs the finder's hidden answer + OCR text */
+    const target = [item.verificationAnswer || "", item.ocrText || ""].filter(Boolean).join(". ") || item.description || "";
+    const source = [va, p].filter(Boolean).join(". ");
+    const pct = await hfCheckMatch(source, target);
+    const verdict = verdictFor(pct);
+    msg.innerHTML = `<div class="notice ${pct >= 75 ? "ok" : pct >= 45 ? "warn" : "err"}"><b>AI match: ${pct}%</b><br>${verdict}</div><div class="progress"><div style="width:${pct}%"></div></div>`;
+
+    const myName = (await db.ref("users").child(u.uid).child("name").once("value")).val() || "User";
+    const proofPhotos = proofPicker.getAll();
+    const claimData = {
+      itemId, itemTitle: item.title,
+      claimantId: u.uid, claimantName: myName,
+      reason: r, ownershipProof: p, verificationAnswer: va,
+      hiddenMatchScore: pct / 100, aiMatchPercentage: pct, aiVerdict: verdict,
+      proofImageUrl: proofPhotos.length ? toRawB64(proofPhotos[0]) : "", status: "⏳ Pending", timestamp: Date.now()
+    };
+    if(proofPhotos.length > 1){
+      claimData.proofImages = {};
+      proofPhotos.forEach((ph, i) => claimData.proofImages[i] = toRawB64(ph));
+    }
+    await db.ref("claims").push(claimData);
+    sendNotification(item.userId, "🙋 New claim on your item", `${myName} claimed "${item.title}" — AI match ${pct}%. Review it now.`, "🙋", "claim", itemId, item.title);
+    btnClaim.textContent = "✅ Claim submitted";
+    toast("Claim submitted — the poster will review it.");
+    setTimeout(() => location.href = "my-claims.html", 1600);
+  };
+});
+</script>
+</body></html>

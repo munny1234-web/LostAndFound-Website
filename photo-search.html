@@ -1,0 +1,71 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Photo Search · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+</head><body>
+<div id="nav"></div>
+<div class="wrap" style="max-width:820px">
+  <div class="page-head"><div><h1>🧠 Photo Search</h1><p class="sub">Upload a photo of your item — AI detects what it is and reads any visible text, then ranks every post by similarity.</p></div></div>
+  <div class="card pad">
+    <input type="file" id="photo" accept="image/*">
+    <img id="preview" style="display:none;margin-top:12px;border-radius:10px;max-height:220px">
+    <div id="aiBox"></div>
+  </div>
+  <div id="results" style="margin-top:20px"></div>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("photo");
+async function loadScript(src){ return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
+let model = null;
+
+photo.onchange = async () => {
+  const f = photo.files[0]; if(!f) return;
+  const b64 = await compressImage(f);
+  preview.src = b64; preview.style.display = "block";
+  aiBox.innerHTML = `<div class="notice ok">🧠 Analyzing photo… first run downloads the AI model (~15 MB), please wait.</div>`;
+  results.innerHTML = `<div class="spin"></div>`;
+
+  let myLabels = "", myOcr = "";
+  try{
+    if(!window.mobilenet){
+      await loadScript("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js");
+      await loadScript("https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js");
+    }
+    if(!model) model = await mobilenet.load();
+    const preds = await model.classify(preview);
+    myLabels = preds.map(p => p.className.split(",")[0]).join(" ");
+    aiBox.innerHTML = `<div class="notice ok">🏷️ <b>AI sees:</b> ${esc(preds.map(p => `${p.className.split(",")[0]} (${Math.round(p.probability*100)}%)`).join(", "))}</div>`;
+  }catch(e){ aiBox.innerHTML = `<div class="notice warn">Label detection unavailable — matching on text only.</div>`; }
+  try{
+    if(!window.Tesseract) await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
+    const r = await Tesseract.recognize(b64, "eng");
+    myOcr = (r.data.text || "").trim().replace(/\s+/g," ").slice(0, 300);
+    if(myOcr) aiBox.innerHTML += `<div class="notice ok">📄 <b>Text detected:</b> ${esc(myOcr)}</div>`;
+  }catch(e){}
+
+  /* score every item — labels 55%, OCR 30%, title/desc 15% (mirrors MLHelper weighting idea) */
+  const snap = await db.ref("items").once("value");
+  const scored = [];
+  snap.forEach(c => {
+    const it = c.val();
+    const sLab = jaccard(myLabels, (it.labelsText||"") + " " + (it.category||""));
+    const sOcr = myOcr ? jaccard(myOcr, it.ocrText||"") : 0;
+    const sTxt = jaccard(myLabels + " " + myOcr, (it.title||"") + " " + (it.description||""));
+    const score = Math.round((sLab*0.55 + sOcr*0.30 + sTxt*0.15) * 100 * 2.2); // scale up small jaccard values
+    scored.push([c.key, it, Math.min(99, score)]);
+  });
+  scored.sort((a,b) => b[2] - a[2]);
+  const top = scored.filter(x => x[2] > 0).slice(0, 12);
+  results.innerHTML = top.length ? `<h2 style="margin-bottom:12px">Top matches</h2><div class="grid">` +
+    top.map(([id, it, sc]) => `<div style="position:relative">${itemCardHTML(id, it)}
+      <span style="position:absolute;top:10px;right:10px;background:var(--ink);color:#fff;font-size:.72rem;font-weight:800;padding:4px 10px;border-radius:999px">🧠 ${sc}%</span></div>`).join("") + `</div>`
+    : `<div class="empty"><div class="big">🔍</div>No similar items found yet. <a href="report.html?type=lost">Post a lost report</a> so finders can reach you.</div>`;
+};
+</script>
+</body></html>

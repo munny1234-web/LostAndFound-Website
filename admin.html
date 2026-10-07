@@ -1,0 +1,164 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/dash.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head><body class="dash">
+<div id="nav"></div>
+<div class="wrap">
+
+  <div class="toolbar">
+    <div><div class="crumb">Admin</div><h1>Overview</h1></div>
+    <div class="spacer"></div>
+    <span class="crumb" id="today"></span>
+    <a class="btn ghost small" href="admin-posts.html">Posts</a>
+    <a class="btn ghost small" href="admin-users.html">Users</a>
+    <a class="btn small" href="admin-analytics.html">Analytics →</a>
+  </div>
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="grid-3" style="margin-top:16px;margin-bottom:40px">
+    <div>
+      <div class="panel">
+        <div class="hd"><h3 id="chartTitle">Post activity — last 30 days</h3>
+          <div class="legend"><span><span class="dot" style="background:#F04444"></span>Lost</span><span><span class="dot" style="background:#0E9F6E"></span>Found</span></div></div>
+        <div class="bd-i"><canvas id="line" style="max-height:220px"></canvas></div>
+      </div>
+      <div class="panel" style="margin-top:16px">
+        <div class="hd"><h3>Recent posts</h3><span class="note"><a href="admin-posts.html">view all</a></span></div>
+        <div class="bd-i" style="padding-top:6px"><table class="dtable" id="recent"></table></div>
+      </div>
+    </div>
+    <div>
+      <div class="panel">
+        <div class="hd"><h3>Reports queue</h3><span class="note" id="qNote"></span></div>
+        <div class="bd-i" id="reports"><div class="spin"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("");
+const RED = "#F04444", GREEN = "#0E9F6E";
+Chart.defaults.font.family = "Inter";
+Chart.defaults.color = "#7A7896";
+today.textContent = new Date().toLocaleDateString([], { weekday:"short", day:"numeric", month:"long", year:"numeric" });
+
+requireAdmin(u => {
+  let nUsers = 0, nClaims = 0, itemsArr = [], pendingReports = 0;
+  const DAY = 86400000, now = Date.now();
+
+  function kpi(){
+    const cur30 = itemsArr.filter(x => (x[1].timestamp||0) >= now - 30*DAY).length;
+    const prv30 = itemsArr.filter(x => { const t = x[1].timestamp||0; return t >= now - 60*DAY && t < now - 30*DAY; }).length;
+    const d = prv30 === 0 ? (cur30 > 0 ? `<span class="delta up">▲ new</span>` : `<span class="delta flat">—</span>`)
+      : (() => { const p = Math.round((cur30-prv30)/prv30*100);
+        return p > 0 ? `<span class="delta up">▲ ${p}%</span>` : p < 0 ? `<span class="delta down">▼ ${Math.abs(p)}%</span>` : `<span class="delta flat">0%</span>`; })();
+    const resolved = itemsArr.filter(x => x[1].status && (x[1].status.includes("Found") || x[1].status.includes("Returned"))).length;
+    kpis.innerHTML = `
+      <div class="panel kpi-p"><div class="lbl">Total posts</div><div class="val">${itemsArr.length}</div>${d} <span style="font-size:.7rem;color:var(--mut)">30d vs prev.</span></div>
+      <div class="panel kpi-p"><div class="lbl">Users</div><div class="val">${nUsers}</div></div>
+      <div class="panel kpi-p"><div class="lbl">Claims</div><div class="val">${nClaims}</div></div>
+      <div class="panel kpi-p"><div class="lbl">Reunited</div><div class="val">${resolved}</div><span class="delta ${resolved ? "up" : "flat"}">${itemsArr.length ? Math.round(resolved/itemsArr.length*100) : 0}% of posts</span></div>
+      <div class="panel kpi-p"><div class="lbl">Pending reports</div><div class="val" style="color:${pendingReports ? "var(--neg)" : "var(--txt)"}">${pendingReports}</div>${pendingReports ? `<span class="delta down">needs review</span>` : `<span class="delta up">all clear</span>`}</div>`;
+  }
+
+  db.ref("users").on("value", s => { nUsers = s.numChildren(); kpi(); });
+  db.ref("claims").on("value", s => { nClaims = s.numChildren(); kpi(); });
+
+  let lineChart = null;
+  db.ref("items").on("value", s => {
+    itemsArr = [];
+    s.forEach(c => { itemsArr.push([c.key, c.val()]); });
+    kpi();
+
+    /* Adaptive window: daily for the last 30 days, but if almost nothing was
+       posted in that window, fall back to a 12-month view so the chart still
+       tells the real story instead of showing a flat empty line. */
+    const days = [], lostD = [], foundD = [], keys = [];
+    const recent30 = itemsArr.filter(x => (x[1].timestamp||0) >= now - 30*DAY).length;
+    const monthly = recent30 < 3;
+    const keyOf = ts => { const d = new Date(ts||0);
+      return monthly ? d.getFullYear() + "-" + d.getMonth() : d.toDateString(); };
+
+    if(monthly){
+      for(let i = 11; i >= 0; i--){
+        const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i);
+        keys.push(d.getFullYear() + "-" + d.getMonth());
+        days.push(d.toLocaleDateString([], { month:"short", year:"2-digit" }));
+        lostD.push(0); foundD.push(0);
+      }
+    } else {
+      for(let i = 29; i >= 0; i--){
+        const d = new Date(); d.setDate(d.getDate() - i);
+        keys.push(d.toDateString());
+        days.push(d.toLocaleDateString([], { day:"numeric", month:"short" }));
+        lostD.push(0); foundD.push(0);
+      }
+    }
+    const ct = document.getElementById("chartTitle");
+    if(ct) ct.textContent = monthly ? "Post activity — last 12 months" : "Post activity — last 30 days";
+
+    itemsArr.forEach(([id,it]) => {
+      const idx = keys.indexOf(keyOf(it.timestamp));
+      if(idx >= 0){ if(it.type === "lost") lostD[idx]++; else foundD[idx]++; }
+    });
+    if(lineChart) lineChart.destroy();
+    try{
+    lineChart = new Chart(line, { type:"line",
+      data:{ labels: days, datasets:[
+        { data: lostD, borderColor: RED, backgroundColor:"rgba(240,68,68,.06)", fill:true, tension:.3, borderWidth:2, pointRadius:0, pointHoverRadius:4 },
+        { data: foundD, borderColor: GREEN, backgroundColor:"rgba(14,159,110,.06)", fill:true, tension:.3, borderWidth:2, pointRadius:0, pointHoverRadius:4 }
+      ]},
+      options:{ interaction:{ mode:"index", intersect:false }, plugins:{ legend:{ display:false } },
+        scales:{ x:{ grid:{ display:false }, ticks:{ maxTicksLimit:8 } },
+                 y:{ beginAtZero:true, ticks:{ precision:0 }, grid:{ color:"#F1F0F8" }, border:{ display:false } } } } });
+    }catch(e){ console.warn("chart unavailable", e); }
+
+    const rec = itemsArr.slice().sort((a,b) => (b[1].timestamp||0)-(a[1].timestamp||0)).slice(0,7);
+    recent.innerHTML = `<tr><th>Item</th><th>Type</th><th>Member</th><th class="num">Posted</th></tr>` +
+      rec.map(([id,it]) => `
+      <tr style="cursor:pointer" onclick="location.href='item.html?id=${id}'">
+        <td><b>${esc(it.title)}</b></td>
+        <td><span class="pill ${it.type === "lost" ? "bad" : "ok"}">${it.type}</span></td>
+        <td>${esc(it.userName||"—")}</td>
+        <td class="num" style="color:var(--mut)">${timeAgo(it.timestamp)}</td></tr>`).join("");
+  });
+
+  db.ref("reports").on("value", s => {
+    const arr = [];
+    pendingReports = 0;
+    s.forEach(c => { arr.push([c.key, c.val()]); if((c.val().status||"pending") === "pending") pendingReports++; });
+    kpi();
+    qNote.textContent = pendingReports ? pendingReports + " pending" : "all clear";
+    arr.sort((a,b) => (b[1].timestamp||0)-(a[1].timestamp||0));
+    reports.innerHTML = arr.length ? arr.slice(0,8).map(([k,r]) => {
+      const pending = !r.status || r.status === "pending";
+      return `<div style="border:1px solid var(--bd);border-radius:12px;padding:12px 14px;margin-bottom:10px">
+        <div class="row" style="gap:8px"><b style="font-size:.86rem">${esc(r.itemTitle||"(deleted item)")}</b><div class="spacer"></div>
+          <span class="pill ${pending ? "warn" : "mut"}">${esc(r.status||"pending")}</span></div>
+        <p style="font-size:.78rem;color:var(--mut);margin:5px 0 8px">"${esc(r.reason||"")}" · ${timeAgo(r.timestamp)}</p>
+        ${pending ? `<div class="row" style="gap:8px">
+          <a class="btn ghost small" href="item.html?id=${r.itemId}">View</a>
+          <button class="btn ghost small" onclick="dismiss('${k}')">Dismiss</button>
+          <button class="btn danger small" onclick="delPost('${k}','${r.itemId}')">Delete post</button></div>` : ""}
+      </div>`;
+    }).join("") : `<div class="empty-s">No reports — everything looks clean.</div>`;
+  });
+
+  window.dismiss = k => db.ref("reports").child(k).child("status").set("dismissed");
+  window.delPost = (k, itemId) => {
+    if(!confirm("Delete this reported post permanently?")) return;
+    db.ref("items").child(itemId).remove().then(() => db.ref("reports").child(k).child("status").set("deleted"));
+  };
+});
+</script>
+</body></html>

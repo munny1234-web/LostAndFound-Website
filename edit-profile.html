@@ -1,0 +1,39 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Edit profile · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+</head><body>
+<div id="nav"></div>
+<div class="wrap-narrow">
+  <div class="card pad">
+    <h1>Edit profile</h1>
+    <label>Profile photo</label><input type="file" id="photo" accept="image/*">
+    <img id="preview" style="display:none;margin-top:10px;border-radius:50%;width:96px;height:96px;object-fit:cover">
+    <label>Name</label><input id="name">
+    <label>Phone</label><input id="phone">
+    <div style="margin-top:20px"><button class="btn block" id="save">Save changes</button></div>
+    <div id="msg"></div>
+  </div>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("profile");
+let photoB64 = "";
+photo.onchange = async () => { const f = photo.files[0]; if(f){ photoB64 = await compressImage(f, 400, .7); preview.src = photoB64; preview.style.display = "block"; } };
+requireAuth(async u => {
+  const p = (await db.ref("users").child(u.uid).once("value")).val() || {};
+  name.value = p.name || ""; phone.value = p.phone || "";
+  if(p.photoUrl){ preview.src = imgSrc(p.photoUrl); preview.style.display = "block"; }
+  save.onclick = () => {
+    const upd = { name: name.value.trim(), phone: phone.value.trim() };
+    if(photoB64) upd.photoUrl = toRawB64(photoB64);
+    db.ref("users").child(u.uid).update(upd).then(() => { toast("Profile saved"); location.href = "profile.html"; });
+  };
+});
+</script>
+</body></html>

@@ -1,0 +1,97 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Notifications · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+</head><body>
+<div id="nav"></div>
+<div class="wrap-narrow" style="max-width:680px">
+  <div class="page-head">
+    <div><h1>Notifications</h1><p class="sub" id="count"></p></div>
+    <button class="btn ghost small" id="markAll">Mark all read</button>
+  </div>
+  <div class="card" id="list"><div class="spin"></div></div>
+  <p class="hint" id="who" style="margin-top:10px"></p>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("notif");
+requireAuth(u => {
+  who.textContent = "Account: " + (u.email || "") + " — must be the SAME account you use in the app.";
+  const ref = db.ref("notifications").child(u.uid);
+
+  ref.on("value", async s => {
+    const arr = [];
+    /* Defensive read: accept every entry no matter which app version wrote it.
+       Old versions may have used body/text instead of message, or time/createdAt
+       instead of timestamp — map them all so NOTHING is skipped. */
+    s.forEach(c => {
+      let n = c.val();
+      if(n == null) n = {};
+      if(typeof n !== "object") n = { message: String(n) };           // even primitives render
+      arr.push([c.key, {
+        title:   n.title ?? n.heading ?? "Notification",
+        message: n.message ?? n.body ?? n.text ?? n.msg ?? "",
+        icon:    n.icon ?? "🔔",
+        read:    n.read === true,
+        timestamp: n.timestamp ?? n.time ?? n.createdAt ?? 0,
+        type:    n.type ?? "",
+        itemId:  n.itemId ?? "",
+        senderId: n.senderId ?? "",
+        senderName: n.senderName ?? ""
+      }]);
+    });
+    arr.sort((a,b) => (b[1].timestamp||0) - (a[1].timestamp||0));
+    const unread = arr.filter(x => !x[1].read).length;
+    count.textContent = arr.length ? `${arr.length} notifications · ${unread} unread` : "";
+
+    /* fetch profile photos for notifications that came from an actual person
+       (chat/claim), so those show a real avatar instead of just the icon */
+    const senderIds = [...new Set(arr.map(x => x[1].senderId).filter(Boolean))];
+    const photos = {};
+    await Promise.all(senderIds.map(async id => { photos[id] = await fetchUserPhoto(id); }));
+
+    if(!arr.length){
+      list.innerHTML = `<div class="empty"><div class="big">🔕</div>Nothing yet on this account. Notifications about claims, chats and matches land here.</div>`;
+      return;
+    }
+    let html = "";
+    for(const [k, n] of arr){
+      try{
+        html += `<div class="list-row" style="${n.read ? "" : "background:var(--brand-soft)"}"
+            data-k="${k}" data-type="${esc(n.type)}" data-item="${esc(n.itemId)}"
+            data-sender="${esc(n.senderId)}">
+          ${n.senderId && photos[n.senderId] ? `<img class="avatar" src="${imgSrc(photos[n.senderId])}">` : `<div class="avatar">${esc(n.icon)}</div>`}
+          <div style="flex:1"><b style="font-size:.92rem">${esc(n.title)}</b>
+            <div class="sub" style="font-size:.85rem">${esc(n.message)}</div>
+            <div class="sub" style="font-size:.72rem">${n.timestamp ? timeAgo(n.timestamp) : ""}</div></div>
+          ${n.read ? "" : `<span style="width:9px;height:9px;border-radius:50%;background:var(--brand)"></span>`}
+        </div>`;
+      }catch(e){ /* one bad entry must never hide the rest */ }
+    }
+    list.innerHTML = html;
+  }, err => {
+    list.innerHTML = `<div class="notice err">Could not load notifications: ${esc(err.message)}</div>`;
+  });
+
+  /* click: mark read + navigate exactly like the app does */
+  list.addEventListener("click", e => {
+    const row = e.target.closest(".list-row");
+    if(!row) return;
+    ref.child(row.dataset.k).child("read").set(true);
+    const type = row.dataset.type, itemId = row.dataset.item, senderId = row.dataset.sender;
+    if((type === "message" || type === "chat") && senderId){
+      location.href = "chat.html?uid=" + senderId + "&itemId=" + (itemId || "general");
+    } else if(itemId){
+      location.href = "item.html?id=" + itemId;
+    }
+  });
+
+  markAll.onclick = () => ref.once("value").then(s => { s.forEach(c => { ref.child(c.key).child("read").set(true); }); });
+});
+</script>
+</body></html>

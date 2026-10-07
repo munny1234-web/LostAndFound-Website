@@ -1,0 +1,130 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Item details · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head><body>
+<div id="nav"></div>
+<div class="wrap">
+  <div id="content"><div class="spin"></div></div>
+  <div id="similar"></div>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("home");
+const id = qs("id");
+let item = null, me = null, allItems = null;
+auth.onAuthStateChanged(u => { me = u; load(); });
+function load(){
+  db.ref("items").child(id).on("value", s => {
+    item = s.val();
+    if(!item){ content.innerHTML = `<div class="empty"><div class="big">🫥</div>This item no longer exists.</div>`; return; }
+    render(); loadSimilar();
+  });
+}
+function render(){
+  const resolved = item.status && (item.status.includes("Found") || item.status.includes("Returned"));
+  const mine = me && me.uid === item.userId;
+  const img = imgSrc(item.imageUrl);
+  content.innerHTML = `
+  <div class="detail-grid">
+    <div class="card detail-img-card">
+      ${item.images && Object.keys(item.images).length > 1
+        ? `<div style="display:flex;gap:2px;overflow-x:auto;scroll-snap-type:x mandatory">${Object.values(item.images).map(im => `<img src="${imgSrc(im)}" style="width:100%;flex:0 0 100%;scroll-snap-align:start">`).join("")}</div>
+           <p class="sub" style="text-align:center;padding:8px 0 0;font-size:.78rem">📸 ${Object.keys(item.images).length} photos — swipe to see all</p>`
+        : (img ? `<img src="${img}" alt="${esc(item.title)}">`
+              : `<div class="item-img" style="height:340px;font-size:4rem">${CAT_ICONS[item.category] || "📦"}</div>`)}
+    </div>
+    <div class="card pad">
+      <div class="row">
+        <span class="tag ${resolved ? "resolved" : (item.type === "lost" ? "lost" : "")}">${resolved ? esc(item.status) : (item.type === "lost" ? "Lost" : "Found")}</span>
+        <span class="sub">${timeAgo(item.timestamp)}</span>
+      </div>
+      <h1 style="margin:12px 0 8px;font-size:1.9rem">${esc(item.title)}</h1>
+      <p style="margin-bottom:6px;font-size:1.02rem">${esc(item.description)}</p>
+
+      <div class="kv">
+        <div class="cell"><div class="k">Category</div><div class="v">${CAT_ICONS[item.category] || "📦"} ${esc(item.category)}</div></div>
+        <div class="cell"><div class="k">Location</div><div class="v">📍 ${esc(item.location)}</div></div>
+        <div class="cell"><div class="k">Date</div><div class="v">📅 ${esc(item.date)}</div></div>
+        <div class="cell"><div class="k">Posted by</div><div class="v">👤 ${esc(item.userName || "User")}</div></div>
+        ${item.reward ? `<div class="cell" style="background:var(--lost-soft)"><div class="k">Reward</div><div class="v">🎁 ${esc(item.reward)}</div></div>` : ""}
+        ${mine || resolved ? `<div class="cell"><div class="k">Contact</div><div class="v">📞 ${esc(item.contact)}</div></div>` : ""}
+      </div>
+
+      ${item.ocrText ? `<div class="notice ok" style="margin:8px 0">📄 <b>AI read on item:</b> ${esc(item.ocrText)}</div>` : ""}
+      ${item.labelsText ? `<div class="notice ok" style="margin:8px 0">🏷️ <b>AI labels:</b> ${esc(item.labelsText)}</div>` : ""}
+      ${item.verificationQuestion && item.type === "found" ? `<div class="notice warn" style="margin:8px 0">🛡️ <b>Verification protected</b> — claimants must answer the finder's secret question before this can be handed over.</div>` : ""}
+
+      ${item.latitude != null ? `<div id="map" class="map-box" style="margin-top:14px;height:240px"></div>` : ""}
+      <div class="row" style="margin-top:20px" id="actions"></div>
+      <div id="msg"></div>
+    </div>
+  </div>`;
+  if(item.latitude != null){
+    const m = L.map("map").setView([item.latitude, item.longitude], 15);
+    addBaseTiles(m);
+    L.marker([item.latitude, item.longitude]).addTo(m);
+  }
+  const A = document.getElementById("actions");
+  if(!me){
+    A.innerHTML = `<a class="btn" href="login.html?next=item.html%3Fid%3D${id}">Log in to claim or chat</a>`;
+  } else if(mine){
+    A.innerHTML = `
+      <a class="btn small" href="edit-item.html?id=${id}">✏️ Edit post</a>
+      <a class="btn ghost small" href="review-claims.html?itemId=${id}">📋 Review claims</a>
+      <button class="btn ghost small" onclick="setStatus('✅ Item Found')">✅ Mark found</button>
+      <button class="btn ghost small" onclick="setStatus('🎉 Returned to Owner')">🎉 Mark returned</button>
+      <button class="btn danger small" onclick="delItem()">🗑️ Delete</button>`;
+  } else {
+    A.innerHTML = `
+      ${!resolved && item.type === "found" ? `<a class="btn" href="claim.html?id=${id}">🙋 This is mine — claim it</a>` : ""}
+      ${!resolved && item.type === "lost" ? `<a class="btn" href="chat.html?uid=${item.userId}&itemId=${id}">💬 I found this — contact owner</a>` : ""}
+      <a class="btn ghost small" href="chat.html?uid=${item.userId}&itemId=${id}">💬 Chat</a>
+      <button class="btn ghost small" onclick="reportItem()">🚩 Report post</button>`;
+  }
+}
+/* ---------- 🧠 AI similar items (opposite type ranked by text/label/OCR overlap) ---------- */
+async function loadSimilar(){
+  if(!allItems) allItems = (await db.ref("items").once("value")).val() || {};
+  const mineTxt = [item.title, item.description, item.labelsText, item.ocrText, item.category].join(" ");
+  const scored = Object.entries(allItems)
+    .filter(([k,it]) => k !== id && it.type !== item.type)
+    .map(([k,it]) => {
+      let s = jaccard(mineTxt, [it.title, it.description, it.labelsText, it.ocrText].join(" "));
+      if(it.category === item.category) s += 0.15;
+      return [k, it, Math.min(99, Math.round(s * 100 * 2.2))];
+    })
+    .filter(x => x[2] >= 10)
+    .sort((a,b) => b[2] - a[2])
+    .slice(0, 4);
+  similar.innerHTML = scored.length ? `
+    <h2 class="section-title">🧠 AI thinks these might match</h2>
+    <p class="sub" style="margin:-6px 0 14px">${item.type === "lost" ? "Found" : "Lost"} posts similar to this one — worth a look.</p>
+    <div class="grid">${scored.map(([k,it,sc]) => `
+      <div style="position:relative">${itemCardHTML(k,it)}<span class="match-chip">🧠 ${sc}%</span></div>`).join("")}</div>` : "";
+}
+window.setStatus = st => {
+  db.ref("items").child(id).update({ status: st, statusUpdatedAt: Date.now() });
+  toast("Status updated: " + st);
+};
+window.delItem = () => {
+  if(!confirm("Delete this post permanently?")) return;
+  db.ref("items").child(id).remove().then(() => location.href = "my-posts.html");
+};
+window.reportItem = () => {
+  const reason = prompt("Why are you reporting this post? (fake / spam / offensive…)");
+  if(!reason) return;
+  db.ref("reports").push({
+    itemId: id, itemTitle: item.title, reportedUserId: item.userId,
+    reporterId: me.uid, reason, status: "pending", timestamp: Date.now()
+  }).then(() => toast("🚩 Report sent to admins. Thank you."));
+};
+</script>
+</body></html>

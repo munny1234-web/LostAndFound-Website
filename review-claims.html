@@ -1,0 +1,77 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Review claims · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+</head><body>
+<div id="nav"></div>
+<div class="wrap" style="max-width:720px">
+  <div class="page-head"><div><h1>Review claims</h1><p class="sub" id="itemLine"></p></div></div>
+  <div id="list"><div class="spin"></div></div>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("home");
+const itemId = qs("itemId");
+let item = null, claims = {}, me = null;
+requireAuth(async u => {
+  me = u;
+  item = (await db.ref("items").child(itemId).once("value")).val();
+  if(!item || item.userId !== u.uid){ list.innerHTML = `<div class="empty">Only the poster of this item can review its claims.</div>`; return; }
+  itemLine.textContent = `"${item.title}" — claims sorted by AI match score.`;
+  db.ref("claims").orderByChild("itemId").equalTo(itemId).on("value", s => {
+    claims = {};
+    s.forEach(c => { claims[c.key] = c.val(); });
+    render();
+  });
+});
+function render(){
+  const arr = Object.entries(claims).sort((a,b) => (b[1].aiMatchPercentage||0) - (a[1].aiMatchPercentage||0));
+  const anyApproved = arr.some(([k,c]) => c.status && c.status.includes("Approved"));
+  list.innerHTML = arr.length ? arr.map(([k,c]) => {
+    const st = c.status || "⏳ Pending";
+    const col = st.includes("Approved") ? "var(--found)" : st.includes("Rejected") ? "var(--danger)" : "#A66A12";
+    const pct = c.aiMatchPercentage ?? 0;
+    return `<div class="card pad" style="margin-bottom:14px">
+      <div class="row"><div class="avatar">${esc((c.claimantName||"U")[0].toUpperCase())}</div>
+        <div><b>${esc(c.claimantName)}</b><div class="sub" style="font-size:.78rem">${timeAgo(c.timestamp)}</div></div>
+        <div class="spacer"></div><b style="color:${col}">${esc(st)}</b></div>
+      <div style="margin:12px 0 4px"><b>🧠 AI match: ${pct}%</b><div class="progress"><div style="width:${pct}%;background:${pct>=75?"var(--found)":pct>=45?"var(--lost)":"var(--danger)"}"></div></div>
+      <p class="sub" style="font-size:.83rem">${esc(c.aiVerdict||"")}</p></div>
+      <p style="font-size:.9rem"><b>Why it's theirs:</b> ${esc(c.reason)}</p>
+      <p style="font-size:.9rem"><b>Ownership proof:</b> ${esc(c.ownershipProof||"—")}</p>
+      ${c.verificationAnswer ? `<p style="font-size:.9rem"><b>Answer to your question:</b> ${esc(c.verificationAnswer)}</p>` : ""}
+      ${c.proofImages ? `<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">${Object.values(c.proofImages).map(p => `<img src="${imgSrc(p)}" style="width:90px;height:90px;object-fit:cover;border-radius:10px;border:1px solid var(--line)">`).join("")}</div>`
+        : c.proofImageUrl ? `<img src="${imgSrc(c.proofImageUrl)}" style="max-height:160px;border-radius:10px;margin-top:8px">` : ""}
+      ${st.includes("Pending") && !anyApproved ? `<div class="row" style="margin-top:14px">
+        <button class="btn small" onclick="approve('${k}')">✅ Approve</button>
+        <button class="btn danger small" onclick="reject('${k}')">❌ Reject</button>
+        <a class="btn ghost small" href="chat.html?uid=${c.claimantId}&itemId=${itemId}">💬 Chat</a></div>` : ""}
+    </div>`;
+  }).join("") : `<div class="empty"><div class="big">📋</div>No claims yet on this item.</div>`;
+}
+window.approve = k => {
+  if(!confirm("Approve this claim? All other pending claims will be rejected.")) return;
+  db.ref("claims").child(k).child("status").set("✅ Approved");
+  const c = claims[k];
+  sendNotification(c.claimantId, "✅ Claim approved!", `Your claim on "${item.title}" was approved. Open chat to arrange the handover. Contact: ${item.contact}`, "✅", "claim", itemId, item.title);
+  Object.entries(claims).forEach(([ok, oc]) => {
+    if(ok !== k && (!oc.status || oc.status.includes("Pending"))){
+      db.ref("claims").child(ok).child("status").set("❌ Rejected");
+      sendNotification(oc.claimantId, "❌ Claim not approved", `Your claim on "${item.title}" was not approved this time.`, "❌", "claim", itemId, item.title);
+    }
+  });
+  db.ref("items").child(itemId).update({ status: "🎉 Returned to Owner", statusUpdatedAt: Date.now() });
+  toast("Approved — item marked as returned.");
+};
+window.reject = k => {
+  db.ref("claims").child(k).child("status").set("❌ Rejected");
+  const c = claims[k];
+  sendNotification(c.claimantId, "❌ Claim not approved", `Your claim on "${item.title}" was not approved.`, "❌", "claim", itemId, item.title);
+};
+</script>
+</body></html>

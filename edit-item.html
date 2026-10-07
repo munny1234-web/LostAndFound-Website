@@ -1,0 +1,182 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Edit item · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head><body>
+<div id="nav"></div>
+<div class="wrap-narrow" style="max-width:640px">
+  <div class="card pad" id="box">
+    <span class="tag" id="typeTag">Edit</span>
+    <h1 style="margin:10px 0 4px">Edit your post</h1>
+    <p class="sub">Change anything — the post updates instantly in the app and on the website.</p>
+
+    <label>Photo (choose a new one to replace, or leave empty to keep)</label>
+    <input type="file" id="photo" accept="image/*">
+    <img id="preview" style="display:none;margin-top:10px;border-radius:10px;max-height:220px">
+    <div id="aiBox"></div>
+
+    <label>Title *</label><input id="title">
+    <label>Description *</label><textarea id="desc"></textarea>
+    <label>Category *</label><select id="category"></select>
+    <label>Location (where) *</label><input id="locText">
+    <div class="row" style="margin-top:14px"><button type="button" class="btn ghost small" id="btnMyLoc">📍 Use my current location</button><span class="hint" id="locStatus"></span></div>
+    <label>Pin on map (tap to move the pin)</label>
+    <div id="map" class="map-box" style="height:260px"></div>
+    <p class="hint" id="pinHint">No pin set yet.</p>
+    <label>Date *</label><input id="date" type="date">
+    <label>Contact info *</label><input id="contact">
+
+    <div id="lostOnly" style="display:none">
+      <label>Reward (optional)</label><input id="reward">
+    </div>
+    <div id="foundOnly" style="display:none">
+      <div class="notice warn" style="margin-top:18px">🛡️ <b>Ownership verification</b> — the secret question claimants must answer.</div>
+      <label>Verification question *</label><input id="vq">
+      <label>Correct answer (never shown to claimants) *</label><input id="va">
+    </div>
+
+    <div class="row" style="margin-top:22px">
+      <button class="btn" id="btnSave" style="flex:1">💾 Save changes</button>
+      <a class="btn ghost" id="btnCancel" href="my-posts.html">Cancel</a>
+    </div>
+    <div id="msg"></div>
+  </div>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("profile");
+const id = qs("id");
+category.innerHTML = CATEGORIES.map(c => `<option>${c}</option>`).join("");
+
+let item = null, lat = null, lng = null, marker = null, mapObj = null, pinManual = false;
+let imageB64 = "", labelsText = "", ocrText = "", photoChanged = false;
+let mobilenetModel = null;
+async function loadScript(src){ return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
+
+function initMap(){
+  mapObj = L.map("map").setView(lat != null ? [lat, lng] : [23.8103, 90.4125], lat != null ? 15 : 12);
+  addBaseTiles(mapObj);
+  if(lat != null){ marker = L.marker([lat, lng]).addTo(mapObj); pinHint.textContent = "📍 Pin set: " + lat.toFixed(5) + ", " + lng.toFixed(5); }
+  mapObj.on("click", e => { pinManual = true; setPin(e.latlng.lat, e.latlng.lng, false); });
+  locText.addEventListener("change", async () => {
+    const q = locText.value.trim();
+    if(!q || pinManual) return;
+    const g = await geocodeAddress(q);
+    if(g){
+      lat = g.lat; lng = g.lng;
+      if(marker) marker.setLatLng([lat,lng]); else marker = L.marker([lat,lng]).addTo(mapObj);
+      mapObj.setView([lat,lng], 15);
+      pinHint.textContent = "📍 Pin auto-set from address: " + lat.toFixed(5) + ", " + lng.toFixed(5);
+    }
+  });
+}
+
+photo.onchange = async () => {
+  const f = photo.files[0]; if(!f) return;
+  photoChanged = true;
+  imageB64 = await compressImage(f);
+  preview.src = imageB64; preview.style.display = "block";
+  aiBox.innerHTML = `<div class="notice ok">🧠 AI analyzing new photo… (detecting labels &amp; reading text)</div>`;
+  labelsText = ""; ocrText = "";
+  try{
+    if(!window.mobilenet){
+      await loadScript("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js");
+      await loadScript("https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js");
+    }
+    if(!mobilenetModel) mobilenetModel = await mobilenet.load();
+    const preds = await mobilenetModel.classify(preview);
+    labelsText = preds.map(p => `${p.className.split(",")[0]} (${Math.round(p.probability*100)}%)`).join(", ");
+  }catch(e){ console.warn("labels failed", e); }
+  try{
+    if(!window.Tesseract) await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
+    const r = await Tesseract.recognize(imageB64, "eng");
+    ocrText = (r.data.text || "").trim().replace(/\s+/g, " ").slice(0, 400);
+  }catch(e){ console.warn("ocr failed", e); }
+  aiBox.innerHTML = `<div class="notice ok">🧠 <b>AI detected:</b> ${esc(labelsText || "no clear labels")}${ocrText ? `<br>📄 <b>Text on item:</b> ${esc(ocrText)}` : ""}</div>`;
+};
+
+
+async function setPin(la, ln, zoomTo){
+  lat = la; lng = ln;
+  const ll = [la, ln];
+  const M = (typeof mapObj !== "undefined" && mapObj) ? mapObj : map;
+  if(marker) marker.setLatLng(ll); else marker = L.marker(ll).addTo(M);
+  if(zoomTo) M.setView(ll, 16);
+  pinHint.textContent = "📍 Pin set: " + la.toFixed(5) + ", " + ln.toFixed(5) + " — fetching address…";
+  const addr = await reverseGeocode(la, ln);
+  pinHint.textContent = "📍 Pin set: " + la.toFixed(5) + ", " + ln.toFixed(5);
+  if(addr){ locText.value = addr; pinHint.textContent += " · address filled ✔"; }
+}
+btnMyLoc.onclick = () => {
+  if(!navigator.geolocation){ locStatus.textContent = "Geolocation not supported on this browser."; return; }
+  locStatus.textContent = "Locating…";
+  navigator.geolocation.getCurrentPosition(
+    p => {
+      pinManual = true;
+      setPin(p.coords.latitude, p.coords.longitude, true);
+      const M = (typeof mapObj !== "undefined" && mapObj) ? mapObj : map;
+      const acc = Math.round(p.coords.accuracy || 0);
+      if(window._accCircle){ M.removeLayer(window._accCircle); window._accCircle = null; }
+      if(acc > 0){ window._accCircle = L.circle([p.coords.latitude, p.coords.longitude], { radius: acc, color: "#E8A13D", fillOpacity: .08 }).addTo(M); }
+      if(acc > 1000){
+        locStatus.innerHTML = "⚠️ Approximate only (±" + (acc/1000).toFixed(1) + " km) — this device has no GPS, so the browser guessed from your internet connection. <b>Tap the map to place the pin correctly.</b>";
+      } else {
+        locStatus.textContent = acc ? "Accurate to ±" + acc + " m ✔" : "";
+      }
+    },
+    e => { locStatus.textContent = "Could not get location — allow permission, or tap the map instead."; },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+};
+
+requireAuth(async u => {
+  item = (await db.ref("items").child(id).once("value")).val();
+  if(!item){ box.innerHTML = `<div class="empty"><div class="big">🫥</div>This item no longer exists.</div>`; return; }
+  if(item.userId !== u.uid){ box.innerHTML = `<div class="empty"><div class="big">🔒</div>Only the person who posted this item can edit it.</div>`; return; }
+
+  typeTag.className = "tag " + (item.type === "lost" ? "lost" : "");
+  typeTag.textContent = "Edit · " + (item.type === "lost" ? "Lost" : "Found");
+  title.value = item.title || "";
+  desc.value = item.description || "";
+  category.value = item.category || "Other";
+  locText.value = item.location || "";
+  date.value = item.date || "";
+  contact.value = item.contact || "";
+  lat = item.latitude ?? null; lng = item.longitude ?? null;
+  if(item.imageUrl){ preview.src = imgSrc(item.imageUrl); preview.style.display = "block"; }
+  if(item.type === "lost"){ lostOnly.style.display = ""; reward.value = item.reward || ""; }
+  else { foundOnly.style.display = ""; vq.value = item.verificationQuestion || ""; va.value = item.verificationAnswer || ""; }
+  initMap();
+
+  btnSave.onclick = async () => {
+    const t = title.value.trim(), d = desc.value.trim(), l = locText.value.trim(), c = contact.value.trim();
+    if(!t || !d || !l || !c || !date.value){ msg.innerHTML = `<div class="notice err">Please fill every required field.</div>`; return; }
+    if(item.type === "found" && (!vq.value.trim() || !va.value.trim())){ msg.innerHTML = `<div class="notice err">Set the verification question and its answer.</div>`; return; }
+    btnSave.disabled = true; btnSave.textContent = "Saving…";
+    const upd = {
+      title: t, description: d, category: category.value,
+      location: l, date: date.value, contact: c
+    };
+    if(item.type === "lost") upd.reward = reward.value.trim();
+    else { upd.verificationQuestion = vq.value.trim(); upd.verificationAnswer = va.value.trim(); }
+    if(photoChanged && imageB64){ upd.imageUrl = toRawB64(imageB64); upd.labelsText = labelsText; upd.ocrText = ocrText; }
+    if(lat == null && l){
+      btnSave.textContent = "Locating address…";
+      const g = await geocodeAddress(l);
+      if(g){ lat = g.lat; lng = g.lng; }
+    }
+    if(lat != null){ upd.latitude = lat; upd.longitude = lng; }
+    await db.ref("items").child(id).update(upd);
+    toast("✅ Post updated");
+    setTimeout(() => location.href = "item.html?id=" + id, 700);
+  };
+});
+</script>
+</body></html>

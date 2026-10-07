@@ -1,0 +1,37 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Items map · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+</head><body>
+<div id="nav"></div>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<div class="wrap">
+  <div class="page-head"><div><h1>Items map</h1><p class="sub">🔴 Lost · 🟢 Found — tap a pin for details.</p></div></div>
+  <div id="map" style="height:70vh" class="map-box"></div>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("map");
+const map = L.map("map").setView([23.8103, 90.4125], 12);
+addBaseTiles(map);
+const dot = c => L.divIcon({ html:`<div style="width:18px;height:18px;border-radius:50%;background:${c};border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`, className:"", iconSize:[18,18] });
+db.ref("items").once("value").then(s => {
+  const pts = [];
+  s.forEach(c => {
+    const it = c.val();
+    if(it.latitude == null) return;
+    const col = it.type === "lost" ? "#F04444" : "#17A45C";
+    pts.push([it.latitude, it.longitude]);
+    L.marker([it.latitude, it.longitude], { icon: dot(col) }).addTo(map)
+      .bindPopup(`<b>${esc(it.title)}</b><br>${it.type === "lost" ? "🔴 Lost" : "🟢 Found"} · ${esc(it.location||"")}<br><a href="item.html?id=${c.key}">Open item →</a>`);
+  });
+  if(pts.length) map.fitBounds(pts, { padding:[40,40] });
+});
+</script>
+</body></html>

@@ -1,0 +1,70 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lost&amp;Found — Lost something? Found something? Reunite it.</title>
+<meta name="description" content="Lost&amp;Found reunites people with their lost belongings using AI photo matching, verified claims and secure chat. Report lost or found items in minutes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+</head><body>
+<div id="nav"></div>
+
+<section class="hero">
+  <h1>Lost it? <span class="w-lost">Report it.</span><br>Found it? <span class="w-found">Return it.</span></h1>
+  <p>Lost&amp;Found reunites people with their belongings, powered by AI. Post in under two minutes — our matching engine compares photos, text on the item and descriptions to reunite things with their owners.</p>
+  <div class="hero-ctas">
+    <a class="btn lost-btn" href="report.html?type=lost">😢 I lost something</a>
+    <a class="btn" href="report.html?type=found">🎉 I found something</a>
+    <a class="btn ghost" href="home.html">Browse items</a>
+  </div>
+</section>
+
+<div class="wrap">
+  <div class="stat-grid" id="stats">
+    <div class="card stat"><div class="n" id="sItems">–</div><div class="l">Items posted</div></div>
+    <div class="card stat"><div class="n" id="sFound">–</div><div class="l">Found reports</div></div>
+    <div class="card stat"><div class="n" id="sUsers">–</div><div class="l">Members</div></div>
+    <div class="card stat"><div class="n" id="sResolved">–</div><div class="l">Reunited</div></div>
+  </div>
+
+  <h2 style="margin:44px 0 4px">How it works</h2>
+  <p class="sub">Three steps between losing something and getting it back.</p>
+  <div class="feature-grid">
+    <div class="card feature"><div class="ic">📸</div><h3>1 · Post with a photo</h3><p>Our AI reads text on the item (serials, name tags) and detects what it is — automatically, right in your browser.</p></div>
+    <div class="card feature"><div class="ic">🤝</div><h3>2 · Get matched</h3><p>Photo Search and semantic matching compare every lost report against every found report and rank the likely pairs.</p></div>
+    <div class="card feature"><div class="ic">🛡️</div><h3>3 · Verify &amp; reunite</h3><p>Finders set a secret verification question. Claims are AI-scored for authenticity before anything is handed over.</p></div>
+  </div>
+
+  <h2 style="margin:44px 0 4px">Built for trust</h2>
+  <div class="feature-grid">
+    <div class="card feature"><div class="ic">🧠</div><h3>AI claim verification</h3><p>Claim answers are compared against the finder's hidden detail with a sentence-similarity model — fraud gets flagged before it happens.</p></div>
+    <div class="card feature"><div class="ic">💬</div><h3>Secure in-app chat</h3><p>Arrange handovers without sharing your phone number until you choose to.</p></div>
+    <div class="card feature"><div class="ic">🗺️</div><h3>Live item map</h3><p>See exactly where things were lost or found around your campus and city.</p></div>
+  </div>
+</div>
+
+<footer>🔎 <b>Lost&amp;Found</b> · Reuniting people with their things · <a href="about.html">About</a> · <a href="faq.html">FAQ</a> · <a href="admin-login.html">Admin</a></footer>
+
+<script src="js/app.js"></script>
+<script>
+initNav("");
+db.ref("items").once("value").then(s => {
+  let total = 0, found = 0, resolved = 0;
+  s.forEach(c => { total++; const v = c.val();
+    if(v.type === "found") found++;
+    if(v.status && (v.status.includes("Found") || v.status.includes("Returned"))) resolved++; });
+  sItems.textContent = total; sFound.textContent = found; sResolved.textContent = resolved;
+});
+/* "users" node is login-protected by DB rules — show the Members stat only when signed in */
+auth.onAuthStateChanged(u => {
+  const card = sUsers.closest(".stat");
+  if(!u){ card.style.display = "none"; return; }
+  card.style.display = "";
+  db.ref("users").once("value")
+    .then(s => sUsers.textContent = s.numChildren())
+    .catch(() => card.style.display = "none");
+});
+</script>
+</body></html>

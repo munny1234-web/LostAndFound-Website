@@ -1,0 +1,102 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Profile · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+.p-hero{background:linear-gradient(135deg,#7C74FF,#4834D4);border-radius:22px;padding:30px 30px 26px;color:#fff;box-shadow:0 10px 30px rgba(72,52,212,.28);position:relative;overflow:hidden}
+.p-hero::after{content:"";position:absolute;top:-60px;right:-60px;width:220px;height:220px;border-radius:50%;background:rgba(255,255,255,.08)}
+.p-top{display:flex;align-items:center;gap:18px;position:relative;z-index:1;flex-wrap:wrap}
+.p-ring{width:88px;height:88px;border-radius:50%;padding:3px;background:rgba(255,255,255,.35);flex-shrink:0}
+.p-avatar{width:100%;height:100%;border-radius:50%;object-fit:cover;background:#ffffff22;display:flex;align-items:center;justify-content:center;font-size:1.9rem;font-weight:800;color:#fff}
+.p-name{font-size:1.4rem;font-weight:800;line-height:1.2}
+.p-meta{font-size:.85rem;color:#ffffffcc;margin-top:3px}
+.p-badge{display:inline-flex;align-items:center;gap:5px;background:#ffffff22;border:1px solid #ffffff40;border-radius:999px;padding:3px 11px;font-size:.7rem;font-weight:700;margin-top:8px}
+.p-edit{background:#ffffff22;border:1px solid #ffffff45;color:#fff;padding:9px 18px;border-radius:12px;font-weight:700;font-size:.85rem;display:inline-flex;gap:6px;align-items:center}
+.p-edit:hover{background:#ffffff33}
+.p-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:18px}
+.p-kpi{background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px 18px;box-shadow:var(--shadow)}
+.p-kpi .ic{font-size:1.15rem}
+.p-kpi .n{font-family:var(--display);font-weight:800;font-size:1.55rem;margin-top:4px}
+.p-kpi .l{font-size:.7rem;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.06em;font-weight:700}
+.p-section-lbl{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-soft);font-weight:800;margin:26px 4px 10px}
+.p-tile{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:9px;cursor:pointer;transition:transform .12s,box-shadow .12s;text-decoration:none;color:var(--ink)}
+.p-tile:hover{transform:translateX(2px);box-shadow:0 6px 16px rgba(27,42,47,.09)}
+.p-tile .ib{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:1.05rem;flex-shrink:0}
+.p-tile b{font-size:.92rem;flex:1}
+.p-tile .chev{color:#C7C3E0;font-size:1.1rem}
+.p-tile.danger b{color:var(--danger)}
+.p-tile.danger .ib{background:var(--danger-soft)}
+.p-tile.admin{border-color:#D8D3FF;background:linear-gradient(135deg,#F6F5FF,#FDFCFF)}
+</style>
+</head><body>
+<div id="nav"></div>
+<div class="wrap-narrow" style="max-width:640px">
+
+  <div class="p-hero" id="hero">
+    <div class="row"><div class="spin" style="border-top-color:#fff"></div></div>
+  </div>
+
+  <div class="p-kpis" id="kpis"></div>
+
+  <div class="p-section-lbl">Activity</div>
+  <a class="p-tile" href="my-posts.html"><div class="ib" style="background:var(--brand-soft)">📦</div><b>My posts</b><span class="chev">›</span></a>
+  <a class="p-tile" href="my-claims.html"><div class="ib" style="background:var(--found-soft)">🙋</div><b>My claims</b><span class="chev">›</span></a>
+  <a class="p-tile" href="chats.html"><div class="ib" style="background:var(--lost-soft)">💬</div><b>My chats</b><span class="chev">›</span></a>
+  <a class="p-tile" href="notifications.html"><div class="ib" style="background:var(--brand-soft)">🔔</div><b>Notifications</b><span class="chev">›</span></a>
+
+  <div class="p-section-lbl">Support</div>
+  <a class="p-tile" href="faq.html"><div class="ib" style="background:var(--mist)">❓</div><b>FAQ</b><span class="chev">›</span></a>
+  <a class="p-tile" href="about.html"><div class="ib" style="background:var(--mist)">ℹ️</div><b>About Lost&amp;Found</b><span class="chev">›</span></a>
+
+  <div id="adminSection" style="display:none">
+    <div class="p-section-lbl">Administration</div>
+    <a class="p-tile admin" href="admin.html"><div class="ib" style="background:var(--brand-soft)">🛠️</div><b>Admin dashboard</b><span class="chev">›</span></a>
+  </div>
+
+  <div class="p-section-lbl">Account</div>
+  <div class="p-tile danger" id="logoutTile"><div class="ib">🚪</div><b>Log out</b><span class="chev">›</span></div>
+
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("profile");
+requireAuth(u => {
+  if(isAdmin(u)) adminSection.style.display = "";
+  logoutTile.onclick = () => auth.signOut().then(() => location.href = "index.html");
+
+  db.ref("users").child(u.uid).on("value", s => {
+    const p = s.val() || {};
+    const initials = (p.name || "U").trim().split(/\s+/).map(w => w[0]).slice(0,2).join("").toUpperCase();
+    const memberSince = p.createdAt ? new Date(p.createdAt).toLocaleDateString([], { month:"long", year:"numeric" }) : null;
+    hero.innerHTML = `
+      <div class="p-top">
+        <div class="p-ring">${p.photoUrl ? `<img class="p-avatar" src="${imgSrc(p.photoUrl)}">` : `<div class="p-avatar">${esc(initials)}</div>`}</div>
+        <div style="flex:1;min-width:180px">
+          <div class="p-name">${esc(p.name || "User")}</div>
+          <div class="p-meta">${esc(p.email || u.email)}${p.phone ? " · " + esc(p.phone) : ""}</div>
+          ${memberSince ? `<span class="p-badge">🗓️ Member since ${memberSince}</span>` : ""}
+        </div>
+        <a class="p-edit" href="edit-profile.html">✏️ Edit profile</a>
+      </div>`;
+  });
+
+  db.ref("items").on("value", s => {
+    let total = 0, resolved = 0;
+    s.forEach(c => { const it = c.val(); if(it.userId === u.uid){ total++;
+      if(it.status && (it.status.includes("Found") || it.status.includes("Returned"))) resolved++; } });
+    const rate = total ? Math.round(resolved/total*100) : 0;
+    db.ref("claims").orderByChild("claimantId").equalTo(u.uid).once("value").then(cs => {
+      kpis.innerHTML = `
+        <div class="p-kpi"><div class="ic">📦</div><div class="n">${total}</div><div class="l">Posts</div></div>
+        <div class="p-kpi"><div class="ic">🙋</div><div class="n">${cs.numChildren()}</div><div class="l">Claims made</div></div>
+        <div class="p-kpi"><div class="ic">🎉</div><div class="n">${rate}%</div><div class="l">Resolved</div></div>`;
+    });
+  });
+});
+</script>
+</body></html>

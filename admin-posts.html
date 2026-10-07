@@ -1,0 +1,39 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin · Posts · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+</head><body>
+<div id="nav"></div>
+<div class="wrap">
+  <div class="page-head"><h1>📦 All posts</h1><a class="btn ghost small" href="admin.html">← Dashboard</a></div>
+  <div class="searchbar"><input id="q" placeholder="Search posts…"></div>
+  <div id="list"><div class="spin"></div></div>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("");
+let items = {}, q_ = "";
+requireAdmin(u => {
+  db.ref("items").on("value", s => { items = s.val() || {}; render(); });
+  q.oninput = e => { q_ = e.target.value.toLowerCase(); render(); };
+});
+function render(){
+  const arr = Object.entries(items)
+    .filter(([id,it]) => !q_ || [it.title,it.userName,it.category,it.location].join(" ").toLowerCase().includes(q_))
+    .sort((a,b) => (b[1].timestamp||0) - (a[1].timestamp||0));
+  list.innerHTML = arr.length ? `<div class="card">` + arr.map(([id,it]) => `
+    <div class="list-row">
+      <span class="tag ${it.type === "lost" ? "lost" : ""}" style="min-width:70px;justify-content:center">${it.type}</span>
+      <div style="flex:1" onclick="location.href='item.html?id=${id}'"><b style="font-size:.92rem">${esc(it.title)}</b>
+        <div class="sub" style="font-size:.8rem">${esc(it.userName||"")} · ${esc(it.category||"")} · ${timeAgo(it.timestamp)}</div></div>
+      <button class="btn danger small" onclick="delItem('${id}')">🗑️</button>
+    </div>`).join("") + `</div>` : `<div class="empty">No posts.</div>`;
+}
+window.delItem = id => { if(confirm("Delete this post?")) db.ref("items").child(id).remove(); };
+</script>
+</body></html>

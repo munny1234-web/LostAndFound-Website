@@ -1,0 +1,202 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Report an item · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head><body>
+<div id="nav"></div>
+<div class="wrap-narrow" style="max-width:640px">
+  <div class="card pad">
+    <span class="tag" id="typeTag">Found</span>
+    <h1 id="pageTitle" style="margin:10px 0 4px">Report a found item</h1>
+    <p class="sub" id="pageSub"></p>
+
+    <label>Photos <span class="hint" style="display:inline">(first photo is the cover — up to 4 total)</span></label>
+    <input type="file" id="photo" accept="image/*" multiple style="display:none">
+    <div id="photoStrip"></div>
+    <div id="aiBox"></div>
+
+    <label>Title *</label><input id="title" placeholder="e.g. Black leather wallet">
+    <label>Description *</label><textarea id="desc" placeholder="Color, brand, marks, contents…"></textarea>
+    <label>Category *</label><select id="category"></select>
+    <label>Location (where) *</label><input id="locText" placeholder="e.g. ADUST campus, Library 2nd floor">
+    <div class="row" style="margin-top:14px"><button type="button" class="btn ghost small" id="btnMyLoc">📍 Use my current location</button><span class="hint" id="locStatus"></span></div>
+    <label>Pin on map (optional — tap to drop a pin)</label>
+    <div id="map" class="map-box" style="height:260px"></div>
+    <p class="hint" id="pinHint">No pin set yet.</p>
+    <label>Date *</label><input id="date" type="date">
+    <label>Contact info *</label><input id="contact" placeholder="Phone or email">
+
+    <div id="lostOnly">
+      <label>Reward (optional)</label><input id="reward" placeholder="e.g. 500 BDT">
+    </div>
+    <div id="foundOnly">
+      <div class="notice warn" style="margin-top:18px">🛡️ <b>Ownership verification</b> — set a secret question only the real owner can answer. Claimants must answer it; AI scores their answer against yours.</div>
+      <label>Verification question *</label><input id="vq" placeholder="e.g. What sticker is on the back?">
+      <label>Correct answer (never shown to claimants) *</label><input id="va" placeholder="The real answer">
+    </div>
+
+    <div style="margin-top:22px"><button class="btn block" id="btnPost">Post item</button></div>
+    <div id="msg"></div>
+  </div>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("home");
+const type = (qs("type") === "lost") ? "lost" : "found";
+typeTag.className = "tag " + (type === "lost" ? "lost" : "");
+typeTag.textContent = type === "lost" ? "Lost" : "Found";
+pageTitle.textContent = type === "lost" ? "Report a lost item" : "Report a found item";
+pageSub.textContent = type === "lost"
+  ? "The more detail you give, our AI matches better against found reports."
+  : "Thank you for being honest — let's get this back to its owner.";
+lostOnly.style.display = type === "lost" ? "" : "none";
+foundOnly.style.display = type === "found" ? "" : "none";
+category.innerHTML = CATEGORIES.map(c => `<option>${c}</option>`).join("");
+date.valueAsDate = new Date();
+
+/* ---- Leaflet location picker (LocationPickerActivity equivalent) ---- */
+let lat = null, lng = null, marker = null;
+const map = L.map("map").setView([23.8103, 90.4125], 12); // Dhaka default
+addBaseTiles(map);
+let pinManual = false;
+map.on("click", e => { pinManual = true; setPin(e.latlng.lat, e.latlng.lng, false); });
+/* typing an address also places the pin automatically (so the app map always gets coordinates) */
+locText.addEventListener("change", async () => {
+  const q = locText.value.trim();
+  if(!q || pinManual) return;
+  const g = await geocodeAddress(q);
+  if(g){
+    lat = g.lat; lng = g.lng;
+    if(marker) marker.setLatLng([lat,lng]); else marker = L.marker([lat,lng]).addTo(map);
+    map.setView([lat,lng], 15);
+    pinHint.textContent = "📍 Pin auto-set from address: " + lat.toFixed(5) + ", " + lng.toFixed(5);
+  }
+});
+async function setPin(la, ln, zoomTo){
+  lat = la; lng = ln;
+  const ll = [la, ln];
+  const M = (typeof mapObj !== "undefined" && mapObj) ? mapObj : map;
+  if(marker) marker.setLatLng(ll); else marker = L.marker(ll).addTo(M);
+  if(zoomTo) M.setView(ll, 16);
+  pinHint.textContent = "📍 Pin set: " + la.toFixed(5) + ", " + ln.toFixed(5) + " — fetching address…";
+  const addr = await reverseGeocode(la, ln);
+  pinHint.textContent = "📍 Pin set: " + la.toFixed(5) + ", " + ln.toFixed(5);
+  if(addr){ locText.value = addr; pinHint.textContent += " · address filled ✔"; }
+}
+btnMyLoc.onclick = () => {
+  if(!navigator.geolocation){ locStatus.textContent = "Geolocation not supported on this browser."; return; }
+  locStatus.textContent = "Locating…";
+  navigator.geolocation.getCurrentPosition(
+    p => {
+      pinManual = true;
+      setPin(p.coords.latitude, p.coords.longitude, true);
+      const M = (typeof mapObj !== "undefined" && mapObj) ? mapObj : map;
+      const acc = Math.round(p.coords.accuracy || 0);
+      if(window._accCircle){ M.removeLayer(window._accCircle); window._accCircle = null; }
+      if(acc > 0){ window._accCircle = L.circle([p.coords.latitude, p.coords.longitude], { radius: acc, color: "#E8A13D", fillOpacity: .08 }).addTo(M); }
+      if(acc > 1000){
+        locStatus.innerHTML = "⚠️ Approximate only (±" + (acc/1000).toFixed(1) + " km) — this device has no GPS, so the browser guessed from your internet connection. <b>Tap the map to place the pin correctly.</b>";
+      } else {
+        locStatus.textContent = acc ? "Accurate to ±" + acc + " m ✔" : "";
+      }
+    },
+    e => { locStatus.textContent = "Could not get location — allow permission, or tap the map instead."; },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+};
+
+navigator.geolocation && navigator.geolocation.getCurrentPosition(p => map.setView([p.coords.latitude, p.coords.longitude], 14), () => {});
+
+/* ---- Photo picker (multi) → AI runs on the cover photo only ---- */
+let labelsText = "", ocrText = "";
+let mobilenetModel = null;
+async function loadScript(src){ return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
+
+const picker = initPhotoPicker({ inputId: "photo", stripId: "photoStrip", max: 4, onChange: photos => {
+  if(photos.length > 0) analyzeCover(photos[0].b64);
+  else { labelsText = ""; ocrText = ""; aiBox.innerHTML = ""; }
+}});
+
+let lastCover = "";
+async function analyzeCover(b64){
+  if(b64 === lastCover) return;
+  lastCover = b64;
+  aiBox.innerHTML = `<div class="notice ok">🧠 AI analyzing cover photo… (detecting labels &amp; reading text)</div>`;
+  labelsText = ""; ocrText = "";
+  try{
+    if(!window.mobilenet){
+      await loadScript("https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js");
+      await loadScript("https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js");
+    }
+    if(!mobilenetModel) mobilenetModel = await mobilenet.load();
+    const img = new Image(); img.src = b64; await img.decode();
+    const preds = await mobilenetModel.classify(img);
+    labelsText = preds.map(p => `${p.className.split(",")[0]} (${Math.round(p.probability*100)}%)`).join(", ");
+    const top = preds[0]?.className.toLowerCase() || "";
+    const guessMap = {wallet:"Wallet/Purse",purse:"Wallet/Purse",cellular:"Phone",phone:"Phone",laptop:"Electronics",keyboard:"Electronics",mouse:"Electronics",backpack:"Bag",bag:"Bag",umbrella:"Umbrella",bottle:"Bottle/Container",sunglass:"Glasses",glass:"Glasses",watch:"Jewelry",necklace:"Jewelry",ring:"Jewelry",jersey:"Clothing",shirt:"Clothing",ball:"Sports Equipment",guitar:"Musical Instrument",violin:"Musical Instrument",dog:"Pet",cat:"Pet",toy:"Toy",teddy:"Toy",envelope:"Documents",book:"Documents",key:"Keys"};
+    for(const k in guessMap){ if(top.includes(k)){ category.value = guessMap[k]; break; } }
+  }catch(e){ console.warn("labels failed", e); }
+  try{
+    if(!window.Tesseract) await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
+    const r = await Tesseract.recognize(b64, "eng");
+    ocrText = (r.data.text || "").trim().replace(/\s+/g, " ").slice(0, 400);
+  }catch(e){ console.warn("ocr failed", e); }
+  aiBox.innerHTML = `<div class="notice ok">🧠 <b>AI detected:</b> ${esc(labelsText || "no clear labels")}${ocrText ? `<br>📄 <b>Text on item:</b> ${esc(ocrText)}` : ""}</div>`;
+}
+
+/* ---- Post ---- */
+requireAuth(u => {
+  btnPost.onclick = async () => {
+    const t = title.value.trim(), d = desc.value.trim(), l = locText.value.trim(), c = contact.value.trim();
+    if(!t || !d || !l || !c || !date.value){ msg.innerHTML = `<div class="notice err">Please fill every required field.</div>`; return; }
+    if(type === "found" && (!vq.value.trim() || !va.value.trim())){ msg.innerHTML = `<div class="notice err">Set the verification question and its answer.</div>`; return; }
+    btnPost.disabled = true; btnPost.textContent = "Posting…";
+    const name = (await db.ref("users").child(u.uid).child("name").once("value")).val() || "User";
+    const ref = db.ref("items").push();
+    const photos = picker.getAll();
+    const item = {
+      id: ref.key, title: t, description: d, category: category.value,
+      location: l, date: date.value, contact: c,
+      reward: type === "lost" ? reward.value.trim() : "",
+      imageUrl: photos.length ? toRawB64(photos[0]) : "", type, userId: u.uid, userName: name,
+      ocrText, labelsText, timestamp: Date.now()
+    };
+    if(photos.length > 1){
+      item.images = {};
+      photos.forEach((p, i) => item.images[i] = toRawB64(p));
+    }
+    /* GUARANTEE coordinates: if no pin was set, geocode the typed address so
+       the post always appears on the app's map ("View on Map" needs lat/lng) */
+    if(lat == null && l){
+      btnPost.textContent = "Locating address…";
+      const g = await geocodeAddress(l);
+      if(g){ lat = g.lat; lng = g.lng; }
+    }
+    if(lat != null){ item.latitude = lat; item.longitude = lng; }
+    if(type === "found"){ item.verificationQuestion = vq.value.trim(); item.verificationAnswer = va.value.trim(); }
+    await ref.set(item);
+    /* auto-match alert: notify owners of similar opposite-type items */
+    try{
+      const all = (await db.ref("items").once("value")).val() || {};
+      const mine = [t, d, labelsText, ocrText, category.value].join(" ");
+      Object.entries(all).forEach(([id, it]) => {
+        if(it.type !== type && it.userId !== u.uid){
+          const score = jaccard(mine, [it.title, it.description, it.labelsText, it.ocrText, it.category].join(" "));
+          if(score >= 0.18 || (it.category === category.value && score >= 0.10)){
+            sendNotification(it.userId, "🎯 Possible match found!", `"${t}" (${type}) looks similar to your ${it.type} item "${it.title}". Tap to check.`, "🎯", "match", ref.key, t);
+          }
+        }
+      });
+    }catch(e){}
+    location.href = "item.html?id=" + ref.key;
+  };
+});
+</script>
+</body></html>

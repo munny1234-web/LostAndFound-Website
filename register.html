@@ -1,0 +1,56 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Create account · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+.pw-wrap{position:relative}
+.pw-wrap input{padding-right:44px}
+.pw-toggle{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;border:none;
+  font-size:1.05rem;cursor:pointer;padding:8px 10px;line-height:1;color:var(--ink-soft)}
+.pw-toggle:hover{color:var(--ink)}
+</style>
+</head><body>
+<div id="nav"></div>
+<div class="wrap-narrow">
+  <div class="card pad">
+    <h1 style="margin-bottom:4px">Create your account</h1>
+    <p class="sub">Join the community that returns things.</p>
+    <label>Full name</label><input id="name" placeholder="Your name">
+    <label>Email</label><input id="email" type="email" placeholder="you@example.com">
+    <label>Phone</label><input id="phone" placeholder="01XXXXXXXXX">
+    <label>Password</label>
+    <div class="pw-wrap">
+      <input id="pass" type="password" placeholder="At least 6 characters">
+      <button type="button" class="pw-toggle" id="pwToggle" aria-label="Show password">👁️</button>
+    </div>
+    <div style="margin-top:18px"><button class="btn block" id="btnReg">Create account</button></div>
+    <p class="hint" style="margin-top:12px;text-align:center">Already a member? <a href="login.html">Log in</a></p>
+    <div id="msg"></div>
+  </div>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("auth");
+pwToggle.onclick = () => {
+  const showing = pass.type === "text";
+  pass.type = showing ? "password" : "text";
+  pwToggle.textContent = showing ? "👁️" : "🙈";
+  pwToggle.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+};
+
+btnReg.onclick = () => {
+  const n = name.value.trim(), e = email.value.trim(), p = phone.value.trim();
+  if(!n || !e || pass.value.length < 6){ msg.innerHTML = `<div class="notice err">Fill every field — password needs 6+ characters.</div>`; return; }
+  btnReg.disabled = true;
+  auth.createUserWithEmailAndPassword(e, pass.value).then(cred =>
+    db.ref("users").child(cred.user.uid).set({ name:n, email:e, phone:p, createdAt: Date.now() })
+  ).then(() => location.href = "home.html")
+   .catch(err => { btnReg.disabled = false; msg.innerHTML = `<div class="notice err">${esc(err.message)}</div>`; });
+};
+</script>
+</body></html>

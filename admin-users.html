@@ -1,0 +1,44 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin · Users · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+</head><body>
+<div id="nav"></div>
+<div class="wrap" style="max-width:760px">
+  <div class="page-head"><h1>👥 Users</h1><a class="btn ghost small" href="admin.html">← Dashboard</a></div>
+  <div class="searchbar"><input id="q" placeholder="Search users…"></div>
+  <div id="list"><div class="spin"></div></div>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("");
+let users = {}, q_ = "";
+requireAdmin(u => {
+  db.ref("users").on("value", s => { users = s.val() || {}; render(); });
+  q.oninput = e => { q_ = e.target.value.toLowerCase(); render(); };
+});
+function render(){
+  const arr = Object.entries(users).filter(([id,p]) => !q_ || [p.name,p.email,p.phone].join(" ").toLowerCase().includes(q_));
+  list.innerHTML = `<div class="card">` + (arr.length ? arr.map(([uid,p]) => `
+    <div class="list-row" style="cursor:default">
+      ${p.photoUrl ? `<img class="avatar" src="${imgSrc(p.photoUrl)}">` : `<div class="avatar">${esc((p.name||"U")[0].toUpperCase())}</div>`}
+      <div style="flex:1"><b style="font-size:.92rem">${esc(p.name||"User")}${p.email && p.email.toLowerCase() === ADMIN_EMAIL ? " 🛠️" : ""}</b>
+        <div class="sub" style="font-size:.8rem">${esc(p.email||"")}${p.phone ? " · " + esc(p.phone) : ""}</div></div>
+      ${p.email && p.email.toLowerCase() === ADMIN_EMAIL ? "" : `<button class="btn danger small" onclick="delUser('${uid}')">🗑️ Remove</button>`}
+    </div>`).join("") : `<div class="empty">No users.</div>`) + `</div>`;
+}
+window.delUser = uid => {
+  if(!confirm("Remove this user's profile, posts, chats and notifications from the database?\nNote: this does NOT delete their login — they could still sign in, just with a blank profile.")) return;
+  db.ref("users").child(uid).remove();
+  db.ref("notifications").child(uid).remove();
+  db.ref("userChats").child(uid).remove();
+  db.ref("items").orderByChild("userId").equalTo(uid).once("value").then(s => { s.forEach(c => { db.ref("items").child(c.key).remove(); }); });
+  toast("User data removed.");
+};
+</script>
+</body></html>

@@ -1,0 +1,43 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>My posts · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+</head><body>
+<div id="nav"></div>
+<div class="wrap">
+  <div class="page-head"><h1>My posts</h1><a class="btn small" href="report.html?type=found">+ New report</a></div>
+  <div id="list"><div class="spin"></div></div>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("profile");
+requireAuth(u => {
+  /* Load ALL items and filter client-side — guarantees every one of your
+     posts shows, even older ones the server-side index query used to miss. */
+  db.ref("items").on("value", s => {
+    const arr = [];
+    s.forEach(c => { const it = c.val(); if(it && it.userId === u.uid) arr.push([c.key, it]); });
+    arr.sort((a,b) => (b[1].timestamp||0) - (a[1].timestamp||0));
+    list.innerHTML = arr.length ? `<div class="grid">` + arr.map(([id,it]) => `
+      <div>
+        ${itemCardHTML(id, it)}
+        <div class="row" style="margin-top:8px;gap:8px">
+          <a class="btn ghost small" style="flex:1" href="edit-item.html?id=${id}">✏️ Edit</a>
+          <a class="btn ghost small" style="flex:1" href="review-claims.html?itemId=${id}">📋 Claims</a>
+          <button class="btn danger small" onclick="delItem('${id}')">🗑️</button>
+        </div>
+      </div>`).join("") + `</div>`
+      : `<div class="empty"><div class="big">📭</div>You haven't posted anything yet. <a href="report.html?type=lost">Report something</a>.</div>`;
+  });
+  window.delItem = id => {
+    if(!confirm("Delete this post permanently?")) return;
+    db.ref("items").child(id).remove().then(() => toast("🗑️ Post deleted"));
+  };
+});
+</script>
+</body></html>

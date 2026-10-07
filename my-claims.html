@@ -1,0 +1,38 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>My claims · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+</head><body>
+<div id="nav"></div>
+<div class="wrap-narrow" style="max-width:680px">
+  <div class="page-head"><h1>My claims</h1></div>
+  <div class="card" id="list"><div class="spin"></div></div>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("profile");
+requireAuth(u => {
+  db.ref("claims").orderByChild("claimantId").equalTo(u.uid).on("value", s => {
+    const arr = [];
+    s.forEach(c => { arr.push(c.val()); });
+    arr.sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+    list.innerHTML = arr.length ? arr.map(c => {
+      const st = c.status || "⏳ Pending";
+      const col = st.includes("Approved") ? "var(--found)" : st.includes("Rejected") ? "var(--danger)" : "#A66A12";
+      return `<div class="list-row" onclick="location.href='item.html?id=${c.itemId}'">
+        <div class="avatar">🙋</div>
+        <div style="flex:1"><b style="font-size:.92rem">${esc(c.itemTitle)}</b>
+          <div class="sub" style="font-size:.83rem">${esc(c.reason).slice(0,90)}</div>
+          <div class="sub" style="font-size:.75rem">🧠 AI match ${c.aiMatchPercentage ?? "?"}% · ${timeAgo(c.timestamp)}</div></div>
+        <b style="color:${col};font-size:.85rem;white-space:nowrap">${esc(st)}</b>
+      </div>`;
+    }).join("") : `<div class="empty"><div class="big">🙋</div>No claims yet. Found your item in the feed? Claim it.</div>`;
+  });
+});
+</script>
+</body></html>

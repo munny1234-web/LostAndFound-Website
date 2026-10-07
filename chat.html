@@ -1,0 +1,84 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chat · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+</head><body>
+<div id="nav"></div>
+<div class="wrap-narrow" style="max-width:680px">
+  <div class="card chat-shell">
+    <div class="list-row" style="cursor:default;border-radius:14px 14px 0 0">
+      <div class="avatar" id="avA">💬</div>
+      <div style="flex:1"><b id="hName">Chat</b><br><a id="hItem" href="#" style="font-size:.78rem;color:var(--brand);text-decoration:none;font-weight:600"></a></div>
+    </div>
+    <div class="chat-msgs" id="msgs"><div class="spin"></div></div>
+    <div class="chat-input">
+      <input id="txt" placeholder="Type a message…" autocomplete="off">
+      <button class="btn" id="send">Send</button>
+    </div>
+  </div>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("chats");
+const otherUid = qs("uid"), itemId = qs("itemId") || "general";
+let myName = "User", otherName = "User", itemTitle = "";
+requireAuth(async u => {
+  if(!otherUid || otherUid === u.uid){ msgs.innerHTML = `<div class="empty">Invalid chat.</div>`; return; }
+  myName = (await db.ref("users").child(u.uid).child("name").once("value")).val() || "User";
+  otherName = (await db.ref("users").child(otherUid).child("name").once("value")).val() || "User";
+  itemTitle = (await db.ref("items").child(itemId).child("title").once("value")).val() || "";
+  hName.textContent = otherName;
+  if(itemTitle && itemId !== "general"){
+    hItem.innerHTML = "📦 " + esc(itemTitle) + " →";
+    hItem.href = "item.html?id=" + itemId;
+  } else {
+    hItem.textContent = ""; hItem.removeAttribute("href");
+  }
+  avA.textContent = otherName[0].toUpperCase();
+
+  const chatId = chatIdFor(u.uid, otherUid, itemId);
+  const chatRef = db.ref("chats").child(chatId).child("messages");
+  chatRef.on("value", s => {
+    const arr = [];
+    s.forEach(c => { arr.push(c.val()); });
+    arr.sort((a,b) => (a.timestamp||0) - (b.timestamp||0));
+    msgs.innerHTML = arr.length ? arr.map(m => `
+      <div class="bubble ${m.senderId === u.uid ? "me" : "them"}">${esc(m.text)}<time>${fmtTime(m.timestamp)}</time></div>`).join("")
+      : `<div class="empty">Say hello 👋 — arrange the handover here.</div>`;
+    msgs.scrollTop = msgs.scrollHeight;
+    /* chat is open on screen — everything up to now counts as read */
+    db.ref("userChats").child(u.uid).child(chatId).child("lastRead").set(Date.now());
+  });
+  function updateThreadIndex(preview){
+    const now = Date.now();
+    db.ref("userChats").child(u.uid).child(chatId).update({ otherUserId: otherUid, otherUserName: otherName, itemId, itemTitle, lastMessage: preview, lastTimestamp: now, lastRead: now });
+    db.ref("userChats").child(otherUid).child(chatId).update({ otherUserId: u.uid, otherUserName: myName, itemId, itemTitle, lastMessage: preview, lastTimestamp: now });
+  }
+  function sendMsg(){
+    const t = txt.value.trim();
+    if(!t) return;
+    txt.value = "";
+    const mref = chatRef.push();
+    mref.set({ id: mref.key, senderId: u.uid, text: t, timestamp: Date.now() });
+    updateThreadIndex(t);
+    sendNotification(otherUid, "💬 New message from " + myName, t.slice(0,80), "💬", "message", itemId, itemTitle);
+  }
+  /* backfill the Chat List index for old chats the moment they're opened */
+  chatRef.once("value").then(s => {
+    if(!s.exists()) return;
+    let lastMessage = "", lastTimestamp = 0;
+    s.forEach(c => { const m = c.val(); if((m.timestamp||0) >= lastTimestamp){ lastTimestamp = m.timestamp||0; lastMessage = m.text||""; } });
+    const now = lastTimestamp || Date.now();
+    db.ref("userChats").child(u.uid).child(chatId).update({ otherUserId: otherUid, otherUserName: otherName, itemId, itemTitle, lastMessage, lastTimestamp: now });
+    db.ref("userChats").child(otherUid).child(chatId).update({ otherUserId: u.uid, otherUserName: myName, itemId, itemTitle, lastMessage, lastTimestamp: now });
+  });
+  send.onclick = sendMsg;
+  txt.addEventListener("keydown", e => { if(e.key === "Enter") sendMsg(); });
+});
+</script>
+</body></html>

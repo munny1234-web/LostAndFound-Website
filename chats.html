@@ -1,0 +1,109 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chats · Lost&amp;Found</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+</head><body>
+<div id="nav"></div>
+<div class="wrap-narrow" style="max-width:680px">
+  <div class="page-head"><h1>Chats</h1></div>
+  <div class="card" id="list"><div class="spin"></div></div>
+</div>
+<script src="js/app.js"></script>
+<script>
+initNav("chats");
+requireAuth(async u => {
+  const threads = {}; // chatId -> thread info
+  const counts = {};  // chatId -> unread message count (fetched from chats/{id}/messages)
+
+  /* count messages newer than my lastRead that the OTHER person sent */
+  async function refreshCounts(){
+    for(const cid in threads){
+      const t = threads[cid];
+      const unread = (t.lastTimestamp||0) > (t.lastRead||0);
+      const cacheKey = (t.lastTimestamp||0) + "_" + (t.lastRead||0);
+      if(!unread){ counts[cid] = 0; continue; }
+      if(counts["_k_"+cid] === cacheKey) continue;   // already counted this state
+      counts["_k_"+cid] = cacheKey;
+      try{
+        const s = await db.ref("chats").child(cid).child("messages").once("value");
+        let n = 0;
+        s.forEach(m => { const v = m.val(); if(v && v.senderId !== u.uid && (v.timestamp||0) > (t.lastRead||0)) n++; });
+        counts[cid] = n;
+      }catch(e){ counts[cid] = 0; }
+    }
+    render();
+  }
+
+  function render(){
+    const arr = Object.entries(threads).sort((a,b) => (b[1].lastTimestamp||0) - (a[1].lastTimestamp||0));
+    list.innerHTML = arr.length ? arr.map(([cid,t]) => {
+      const unread = (t.lastTimestamp||0) > (t.lastRead||0);
+      return `
+      <div class="list-row" style="${unread ? "background:var(--brand-soft)" : ""}"
+           onclick="location.href='chat.html?uid=${t.otherUserId}&itemId=${t.itemId||"general"}'">
+        ${t.otherUserPhoto ? `<img class="avatar" src="${imgSrc(t.otherUserPhoto)}">` : `<div class="avatar">${esc((t.otherUserName||"U")[0].toUpperCase())}</div>`}
+        <div style="flex:1"><b style="font-size:.93rem">${esc(t.otherUserName||"User")}</b>
+          <div class="sub" style="font-size:.8rem">📦 ${esc(t.itemTitle||"")}</div>
+          <div class="sub" style="font-size:.85rem;${unread ? "font-weight:800;color:var(--ink)" : ""}">${esc((t.lastMessage||"").slice(0,60))}</div></div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+          <span class="sub" style="font-size:.72rem;${unread ? "font-weight:800;color:var(--brand)" : ""}">${timeAgo(t.lastTimestamp)}</span>
+          ${unread ? `<span style="min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:var(--brand);color:#fff;font-size:.72rem;font-weight:800;display:flex;align-items:center;justify-content:center">${counts[cid] > 0 ? (counts[cid] > 99 ? "99+" : counts[cid]) : "•"}</span>` : ""}
+        </div>
+      </div>`; }).join("") : `<div class="empty"><div class="big">💬</div>No conversations yet. Open any item and tap Chat.</div>`;
+  }
+
+  /* fetch each other-user's profile photo once (cached) before rendering */
+  async function enrichPhotos(){
+    await Promise.all(Object.values(threads).map(async t => {
+      if(t.otherUserPhoto === undefined && t.otherUserId){
+        t.otherUserPhoto = await fetchUserPhoto(t.otherUserId);
+      }
+    }));
+  }
+  async function renderWithPhotos(){ await enrichPhotos(); render(); }
+
+  /* 1) fast path: the userChats index (same as the app's Chat List) */
+  db.ref("userChats").child(u.uid).on("value", s => {
+    s.forEach(c => { threads[c.key] = Object.assign(threads[c.key] || {}, c.val()); });
+    renderWithPhotos();
+    refreshCounts();
+  }, err => {
+    list.innerHTML = `<div class="notice err">Could not load chats: ${esc(err.message)}</div>`;
+  });
+
+  /* 2) fallback: scan the chats node for OLDER chats that were created
+        before the Chat List index existed (chatId = uid1_uid2_itemId) */
+  try{
+    const all = (await db.ref("chats").once("value")).val() || {};
+    for(const chatId in all){
+      if(threads[chatId]) continue;                    // already indexed
+      const parts = chatId.split("_");
+      if(parts.length < 2) continue;
+      const [a, b] = parts;
+      if(a !== u.uid && b !== u.uid) continue;         // not my chat
+      const otherUserId = a === u.uid ? b : a;
+      const itemId = parts.slice(2).join("_") || "general";
+      // last message
+      let lastMessage = "", lastTimestamp = 0;
+      const msgs = (all[chatId] && all[chatId].messages) || {};
+      for(const k in msgs){
+        if((msgs[k].timestamp||0) >= lastTimestamp){ lastTimestamp = msgs[k].timestamp||0; lastMessage = msgs[k].text||""; }
+      }
+      const otherUserName = (await db.ref("users").child(otherUserId).child("name").once("value")).val() || "User";
+      let itemTitle = "";
+      if(itemId !== "general") itemTitle = (await db.ref("items").child(itemId).child("title").once("value")).val() || "";
+      threads[chatId] = { otherUserId, otherUserName, itemId, itemTitle, lastMessage, lastTimestamp, lastRead: lastTimestamp };
+      // backfill the index so the app's Chat List shows this old chat too
+      db.ref("userChats").child(u.uid).child(chatId).update(threads[chatId]);
+    }
+    renderWithPhotos();
+    refreshCounts();
+  }catch(e){ console.warn("chat scan skipped", e); }
+});
+</script>
+</body></html>
